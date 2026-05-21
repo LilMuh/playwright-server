@@ -6,6 +6,15 @@ const BrowserManager = require('./BrowserManager');
 const config = require('../config/default');
 const dbg = require('debug');
 
+function parseBody(req) {
+  return new Promise((resolve) => {
+    let data = '';
+    req.on('data', chunk => { data += chunk; });
+    req.on('end', () => { resolve(JSON.parse(data || '{}')); });
+    req.on('error', () => { resolve({}); });
+  });
+}
+
 const debug = dbg('debug:server');
 const info = dbg('info:server');
 
@@ -72,7 +81,7 @@ class PlaywrightServer {
   /**
    * Handle HTTP requests
    */
-  handleHttpRequest(req, res) {
+  async handleHttpRequest(req, res) {
     const url = new URL(req.url, `http://${req.headers.host}`);
     
     // Health check endpoint
@@ -86,6 +95,41 @@ class PlaywrightServer {
     if (url.pathname === '/stats') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(this.browserManager.getStats(), null, 2));
+      return;
+    }
+
+    // POST /browser/local - start a local browser
+    if (url.pathname === '/browser/local' && req.method === 'POST') {
+      const body = await parseBody(req);
+      const { taskId } = body;
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
+      try {
+        const ws_endpoint = await this.browserManager.startLocalBrowser(taskId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, taskId, ws_endpoint }));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
+      return;
+    }
+
+    // DELETE /browser/local/:taskId - stop a local browser
+    const deleteMatch = url.pathname.match(/^\/browser\/local\/([^/]+)$/);
+    if (deleteMatch && req.method === 'DELETE') {
+      const taskId = deleteMatch[1];
+      try {
+        await this.browserManager.stopLocalBrowser(taskId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, taskId }));
+      } catch (error) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: error.message }));
+      }
       return;
     }
 

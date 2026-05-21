@@ -87,5 +87,12 @@ module.exports = {
   cleanup: {
     interval: parseInt(process.env.CLEANUP_INTERVAL) || 5 * 60 * 1000, // 5 minutes
     enabled: process.env.CLEANUP_ENABLED !== 'false'
+  },
+
+  // Local browser proxy configuration
+  localBrowserProxy: {
+    baseUrl: process.env.LOCAL_BROWSER_PROXY_URL,
+    apiKey: process.env.LOCAL_BROWSER_PROXY_API_KEY,
+    ttl: 6 * 60 * 1000
   }
 };

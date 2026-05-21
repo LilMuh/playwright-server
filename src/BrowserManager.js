@@ -8,6 +8,7 @@ const info = dbg('info:browser-manager');
 class BrowserManager {
   constructor() {
     this.servers = new Map(); // Map<string, ServerInfo>
+    this.localSessions = new Map(); // Map<taskId, { ws_endpoint, createdAt }>
     this.nextServerIndex = 0;
     this.cleanupInterval = null;
 
@@ -154,6 +155,43 @@ class BrowserManager {
     return null;
   }
 
+  async _localProxyFetch(method, path, body) {
+    const { baseUrl, apiKey } = config.localBrowserProxy;
+    const res = await fetch(`${baseUrl}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': apiKey,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error(data.error || `local-browser-proxy error ${res.status}`);
+      err.statusCode = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  async startLocalBrowser(taskId) {
+    await this._localProxyFetch('POST', '/browser/create', { profile_name: taskId });
+    const result = await this._localProxyFetch('POST', '/browser/start', { profile_name: taskId });
+    const { ws_endpoint } = result;
+    this.localSessions.set(taskId, { taskId, ws_endpoint, createdAt: Date.now() });
+    info(`✅ Local browser started for task ${taskId}`);
+    return ws_endpoint;
+  }
+
+  async stopLocalBrowser(taskId) {
+    try {
+      await this._localProxyFetch('POST', '/browser/stop', { profile_name: taskId });
+    } catch (error) {
+      debug(`❌ Error stopping local browser ${taskId}:`, error.message);
+    }
+    this.localSessions.delete(taskId);
+  }
+
   /**
    * Start cleanup process for expired servers
    */
@@ -183,6 +221,13 @@ class BrowserManager {
       info(`🧹 Cleaning up ${expiredServers.length} expired servers...`);
       for (const serverKey of expiredServers) {
         await this.cleanupServer(serverKey);
+      }
+    }
+
+    const { ttl } = config.localBrowserProxy;
+    for (const [taskId, session] of this.localSessions) {
+      if ((now - session.createdAt) >= ttl) {
+        await this.stopLocalBrowser(taskId);
       }
     }
   }
@@ -227,6 +272,11 @@ class BrowserManager {
       await this.cleanupServer(serverKey);
     }
 
+    // Stop all local browser sessions
+    for (const taskId of Array.from(this.localSessions.keys())) {
+      await this.stopLocalBrowser(taskId);
+    }
+
     info(`✅ All servers cleaned up`);
   }
 
@@ -235,10 +285,12 @@ class BrowserManager {
    * @returns {Object} Server statistics
    */
   getStats() {
+    const now = Date.now();
     const stats = {
-      total: this.servers.size,
+      total: this.servers.size + this.localSessions.size,
       byType: {},
-      servers: []
+      servers: [],
+      localSessions: []
     };
 
     for (const [serverKey, serverInfo] of this.servers) {
@@ -255,9 +307,21 @@ class BrowserManager {
         wsPath: serverInfo.wsPath,
         createdAt: new Date(serverInfo.createdAt).toISOString(),
         lastAccessedAt: new Date(serverInfo.lastAccessedAt).toISOString(),
-        age: Date.now() - serverInfo.createdAt,
+        age: now - serverInfo.createdAt,
         ttl: config.browsers[serverInfo.type].ttl,
         expired: !this.isServerValid(serverInfo)
+      });
+    }
+
+    const { ttl } = config.localBrowserProxy;
+    for (const [taskId, session] of this.localSessions) {
+      stats.localSessions.push({
+        taskId,
+        ws_endpoint: session.ws_endpoint,
+        createdAt: new Date(session.createdAt).toISOString(),
+        age: now - session.createdAt,
+        ttl,
+        expired: (now - session.createdAt) >= ttl
       });
     }
 
