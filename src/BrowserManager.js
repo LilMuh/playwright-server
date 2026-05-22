@@ -155,6 +155,7 @@ class BrowserManager {
     return null;
   }
 
+  // Generic HTTP helper for local-browser-proxy REST API; throws on non-2xx responses
   async _localProxyFetch(method, path, body) {
     const { baseUrl, apiKey } = config.localBrowserProxy;
     const res = await fetch(`${baseUrl}${path}`, {
@@ -174,8 +175,9 @@ class BrowserManager {
     return data;
   }
 
-  async startLocalBrowser(taskId) {
-    await this._localProxyFetch('POST', '/browser/create', { profile_name: taskId });
+  // Create a browser profile via local-browser-proxy, start it, and cache the WS endpoint keyed by taskId
+  async startLocalBrowser(taskId, proxy) {
+    await this._localProxyFetch('POST', '/browser/create', { profile_name: taskId, proxy });
     const result = await this._localProxyFetch('POST', '/browser/start', { profile_name: taskId });
     const { ws_endpoint } = result;
     this.localSessions.set(taskId, { taskId, ws_endpoint, createdAt: Date.now() });
@@ -183,6 +185,7 @@ class BrowserManager {
     return ws_endpoint;
   }
 
+  // Stop local browser via proxy and evict from session map; stop errors are suppressed so cleanup always proceeds
   async stopLocalBrowser(taskId) {
     try {
       await this._localProxyFetch('POST', '/browser/stop', { profile_name: taskId });
@@ -224,6 +227,7 @@ class BrowserManager {
       }
     }
 
+    // Expire local browser sessions past their TTL
     const { ttl } = config.localBrowserProxy;
     for (const [taskId, session] of this.localSessions) {
       if ((now - session.createdAt) >= ttl) {
@@ -272,7 +276,7 @@ class BrowserManager {
       await this.cleanupServer(serverKey);
     }
 
-    // Stop all local browser sessions
+    // Stop all active local browser sessions
     for (const taskId of Array.from(this.localSessions.keys())) {
       await this.stopLocalBrowser(taskId);
     }
@@ -313,6 +317,7 @@ class BrowserManager {
       });
     }
 
+    // Append local browser session stats
     const { ttl } = config.localBrowserProxy;
     for (const [taskId, session] of this.localSessions) {
       stats.localSessions.push({

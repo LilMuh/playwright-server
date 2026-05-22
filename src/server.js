@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-require('dotenv').config();
+require('dotenv').config(); // Load .env into process.env before any config is read
 
 const http = require('http');
 const httpProxy = require('http-proxy');
@@ -7,6 +7,7 @@ const BrowserManager = require('./BrowserManager');
 const config = require('../config/default');
 const dbg = require('debug');
 
+// Collect and parse JSON body from an incoming HTTP request stream
 function parseBody(req) {
   return new Promise((resolve) => {
     let data = '';
@@ -102,14 +103,19 @@ class PlaywrightServer {
     // POST /browser/local - start a local browser
     if (url.pathname === '/browser/local' && req.method === 'POST') {
       const body = await parseBody(req);
-      const { taskId } = body;
+      const { taskId, proxy } = body;
       if (!taskId) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'taskId is required' }));
         return;
       }
+      if (!proxy) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'proxy is required' }));
+        return;
+      }
       try {
-        const ws_endpoint = await this.browserManager.startLocalBrowser(taskId);
+        const ws_endpoint = await this.browserManager.startLocalBrowser(taskId, proxy);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, taskId, ws_endpoint }));
       } catch (error) {
