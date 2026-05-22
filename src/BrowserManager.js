@@ -195,6 +195,7 @@ class BrowserManager {
   async stopLocalBrowser(taskId) {
     try {
       await this._localProxyFetch('POST', '/browser/stop', { profile_name: taskId });
+      await this._localProxyFetch('DELETE', `/open-api/profiles/by-name/${taskId}`);
     } catch (error) {
       debug(`❌ Error stopping local browser ${taskId}:`, error.message);
     }
