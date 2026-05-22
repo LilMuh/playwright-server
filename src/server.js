@@ -127,10 +127,15 @@ class PlaywrightServer {
       return;
     }
 
-    // DELETE /browser/local/:taskId - stop a local browser
-    const deleteMatch = url.pathname.match(/^\/browser\/local\/([^/]+)$/);
-    if (deleteMatch && req.method === 'DELETE') {
-      const taskId = deleteMatch[1];
+    // DELETE /browser/local - stop a local browser
+    if (url.pathname === '/browser/local' && req.method === 'DELETE') {
+      const body = await parseBody(req);
+      const { taskId } = body;
+      if (!taskId) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'taskId is required' }));
+        return;
+      }
       try {
         await this.browserManager.stopLocalBrowser(taskId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
