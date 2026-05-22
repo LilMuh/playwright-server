@@ -155,7 +155,9 @@ class BrowserManager {
     return null;
   }
 
-  // Generic HTTP helper for local-browser-proxy REST API; throws on non-2xx responses
+  /**
+   * Generic HTTP helper for local-browser-proxy REST API; throws on non-2xx responses
+   */
   async _localProxyFetch(method, path, body) {
     const { baseUrl, apiKey } = config.localBrowserProxy;
     const res = await fetch(`${baseUrl}${path}`, {
@@ -175,7 +177,9 @@ class BrowserManager {
     return data;
   }
 
-  // Create a browser profile via local-browser-proxy, start it, and cache the WS endpoint keyed by taskId
+  /**
+   * Create a browser profile via local-browser-proxy, start it, and cache the WS endpoint keyed by taskId
+   */
   async startLocalBrowser(taskId, proxy) {
     await this._localProxyFetch('POST', '/browser/create', { profile_name: taskId, proxy });
     const result = await this._localProxyFetch('POST', '/browser/start', { profile_name: taskId });
@@ -185,7 +189,9 @@ class BrowserManager {
     return ws_endpoint;
   }
 
-  // Stop local browser via proxy and evict from session map; stop errors are suppressed so cleanup always proceeds
+  /**
+   * Stop local browser via proxy and evict from session map; stop errors are suppressed so cleanup always proceeds
+   */
   async stopLocalBrowser(taskId) {
     try {
       await this._localProxyFetch('POST', '/browser/stop', { profile_name: taskId });

@@ -7,7 +7,9 @@ const BrowserManager = require('./BrowserManager');
 const config = require('../config/default');
 const dbg = require('debug');
 
-// Collect and parse JSON body from an incoming HTTP request stream
+/**
+ * Collect and parse JSON body from an incoming HTTP request stream
+ */
 function parseBody(req) {
   return new Promise((resolve) => {
     let data = '';
