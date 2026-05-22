@@ -89,10 +89,10 @@ module.exports = {
     enabled: process.env.CLEANUP_ENABLED !== 'false'
   },
 
-  // Local browser proxy configuration
-  localBrowserProxy: {
-    baseUrl: process.env.LOCAL_BROWSER_PROXY_URL,
-    apiKey: process.env.LOCAL_BROWSER_PROXY_API_KEY,
+  // Local browser server configuration
+  localBrowserServer: {
+    baseUrl: process.env.LOCAL_BROWSER_SERVER_URL,
+    apiKey: process.env.LOCAL_BROWSER_SERVER_API_KEY,
     ttl: 6 * 60 * 1000
   }
 };

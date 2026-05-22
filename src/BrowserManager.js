@@ -156,10 +156,27 @@ class BrowserManager {
   }
 
   /**
-   * Generic HTTP helper for local-browser-proxy REST API; throws on non-2xx responses
+   * Poll /json/version until the browser's debug port is ready, then return the WebSocket endpoint
    */
-  async _localProxyFetch(method, path, body) {
-    const { baseUrl, apiKey } = config.localBrowserProxy;
+  async _fetchWsEndpoint(debugUrl, timeout = 5000) {
+    const deadline = Date.now() + timeout;
+    while (Date.now() < deadline) {
+      try {
+        const res = await fetch(`${debugUrl}/json/version`);
+        const { webSocketDebuggerUrl } = await res.json();
+        return webSocketDebuggerUrl;
+      } catch {
+        await new Promise(r => setTimeout(r, 200));
+      }
+    }
+    throw new Error(`Browser debug port not ready within ${timeout}ms: ${debugUrl}`);
+  }
+
+  /**
+   * Generic HTTP helper for local browser server REST API; throws on non-2xx responses
+   */
+  async _localBrowserFetch(method, path, body) {
+    const { baseUrl, apiKey } = config.localBrowserServer;
     const res = await fetch(`${baseUrl}${path}`, {
       method,
       headers: {
@@ -170,7 +187,7 @@ class BrowserManager {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      const err = new Error(data.error || `local-browser-proxy error ${res.status}`);
+      const err = new Error(data.error || `local browser server error ${res.status}`);
       err.statusCode = res.status;
       throw err;
     }
@@ -178,25 +195,34 @@ class BrowserManager {
   }
 
   /**
-   * Create a browser profile via local-browser-proxy, start it, and cache the WS endpoint keyed by taskId
+   * Create a browser profile via local browser server, start it, and cache the WS endpoint keyed by taskId.
+   * Stores the profile id so stopLocalBrowser can delete by id.
    */
   async startLocalBrowser(taskId, proxy) {
-    await this._localProxyFetch('POST', '/browser/create', { profile_name: taskId, proxy });
-    const result = await this._localProxyFetch('POST', '/browser/start', { profile_name: taskId });
-    const { ws_endpoint } = result;
-    this.localSessions.set(taskId, { taskId, ws_endpoint, createdAt: Date.now() });
+    const created = await this._localBrowserFetch('POST', '/open-api/profiles', { name: taskId, proxy });
+    const profileId = created.id;
+
+    const started = await this._localBrowserFetch('POST', `/open-api/profiles/${profileId}/start`, {});
+    const debugUrl = started.debug_url;
+
+    const webSocketDebuggerUrl = await this._fetchWsEndpoint(debugUrl);
+
+    this.localSessions.set(taskId, { taskId, profileId, ws_endpoint: webSocketDebuggerUrl, createdAt: Date.now() });
     info(`✅ Local browser started for task ${taskId}`);
-    return ws_endpoint;
+    return webSocketDebuggerUrl;
   }
 
   /**
-   * Delete local browser profile via proxy (proxy handles stop internally) and evict from session map
+   * Delete local browser profile by id (server stops it first) and evict from session map
    */
   async stopLocalBrowser(taskId) {
-    try {
-      await this._localProxyFetch('DELETE', '/open-api/profiles', { profile_name: taskId });
-    } catch (error) {
-      debug(`❌ Error stopping local browser ${taskId}:`, error.message);
+    const session = this.localSessions.get(taskId);
+    if (session) {
+      try {
+        await this._localBrowserFetch('DELETE', `/open-api/profiles/${session.profileId}`);
+      } catch (error) {
+        debug(`❌ Error stopping local browser ${taskId}:`, error.message);
+      }
     }
     this.localSessions.delete(taskId);
   }
@@ -234,7 +260,7 @@ class BrowserManager {
     }
 
     // Expire local browser sessions past their TTL
-    const { ttl } = config.localBrowserProxy;
+    const { ttl } = config.localBrowserServer;
     for (const [taskId, session] of this.localSessions) {
       if ((now - session.createdAt) >= ttl) {
         await this.stopLocalBrowser(taskId);
@@ -324,7 +350,7 @@ class BrowserManager {
     }
 
     // Append local browser session stats
-    const { ttl } = config.localBrowserProxy;
+    const { ttl } = config.localBrowserServer;
     for (const [taskId, session] of this.localSessions) {
       stats.localSessions.push({
         taskId,
