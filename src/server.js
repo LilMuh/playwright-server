@@ -119,8 +119,24 @@ class PlaywrightServer {
         return;
       }
 
+      // Parse proxyString for Chrome only
+      let proxyString = null;
+      if (browserType === 'chrome') {
+        const raw = url.searchParams.get('proxyString');
+        if (raw) {
+          try {
+            new URL(raw); // validate format
+            proxyString = raw;
+          } catch {
+            debug(`❌ Invalid proxyString format: ${raw}`);
+            socket.destroy();
+            return;
+          }
+        }
+      }
+
       // Get or create browser server
-      const serverInfo = await this.browserManager.getOrCreateServer(browserType, serverIndex);
+      const serverInfo = await this.browserManager.getOrCreateServer(browserType, serverIndex, { proxyString });
       const target = `http://127.0.0.1:${serverInfo.port}`;
 
       // Proxy the WebSocket connection

@@ -23,32 +23,39 @@ class BrowserManager {
    * @param {number} serverIndex - Optional server index, if not provided, will use next available
    * @returns {Promise<Object>} Server info object
    */
-  async getOrCreateServer(browserType, serverIndex = null) {
+  async getOrCreateServer(browserType, serverIndex = null, options = {}) {
     if (!config.browsers[browserType] || !config.browsers[browserType].enabled) {
       throw new Error(`Browser type ${browserType} is not enabled`);
     }
 
-    // If no server index provided, use next available
+    // 没有指定 index 时，自动选下一个可用的
     if (serverIndex === null) {
       serverIndex = this.getNextServerIndex(browserType);
     }
 
     const serverKey = `${browserType}-${serverIndex}`;
-    
-    // Check if server already exists and is still valid
+
+    // 检查 server 是否已存在
     if (this.servers.has(serverKey)) {
       const serverInfo = this.servers.get(serverKey);
-      if (this.isServerValid(serverInfo)) {
+      const incomingProxy = options.proxyString || null;
+      const proxyChanged = serverInfo.proxyString !== incomingProxy;
+
+      // TTL 未过期且 proxy 没变，直接复用
+      if (this.isServerValid(serverInfo) && !proxyChanged) {
         debug(`♻️  Reusing existing ${browserType} server ${serverIndex} on port ${serverInfo.port}`);
         return serverInfo;
-      } else {
-        // Server expired, clean it up
-        await this.cleanupServer(serverKey);
       }
+
+      // proxy 变了或者过期了，先销毁再重建
+      if (proxyChanged) {
+        debug(`🔄 Proxy changed for ${serverKey}, rebuilding server`);
+      }
+      await this.cleanupServer(serverKey);
     }
 
-    // Create new server
-    return await this.createServer(browserType, serverIndex);
+    // 创建新 server
+    return await this.createServer(browserType, serverIndex, options);
   }
 
   /**
@@ -57,7 +64,7 @@ class BrowserManager {
    * @param {number} serverIndex - Server index
    * @returns {Promise<Object>} Server info object
    */
-  async createServer(browserType, serverIndex) {
+  async createServer(browserType, serverIndex, options = {}) {
     const browserConfig = config.browsers[browserType];
     const port = browserConfig.startPort + serverIndex;
     const serverKey = `${browserType}-${serverIndex}`;
@@ -74,11 +81,29 @@ class BrowserManager {
         throw new Error(`Unsupported browser type: ${browserType}`);
       }
 
+      // 构建启动参数，不修改全局 config 对象
+      const launchOptions = { ...browserConfig.launchOptions };
+
+      // Chrome 且传入了 proxyString 时，解析并注入 proxy 配置
+      const proxyString = options.proxyString || null;
+      if (browserType === 'chrome' && proxyString) {
+        const proxyUrl = new URL(proxyString);
+        launchOptions.proxy = {
+          server: `${proxyUrl.protocol}//${proxyUrl.host}`
+        };
+        // 如果 proxy 带有认证信息，单独提取（Playwright proxy 选项原生支持）
+        if (proxyUrl.username) {
+          launchOptions.proxy.username = decodeURIComponent(proxyUrl.username);
+          launchOptions.proxy.password = decodeURIComponent(proxyUrl.password);
+        }
+        info(`   Proxy: ${proxyUrl.protocol}//${proxyUrl.host}`);
+      }
+
       const server = await browser.launchServer({
         port: port,
         host: '0.0.0.0',
         wsPath: `/${browserType}-${serverIndex}`,
-        ...browserConfig.launchOptions
+        ...launchOptions
       });
 
       const serverInfo = {
@@ -87,6 +112,7 @@ class BrowserManager {
         port: port,
         server: server,
         wsPath: `/${browserType}-${serverIndex}`,
+        proxyString: proxyString,
         createdAt: Date.now(),
         lastAccessedAt: Date.now()
       };
@@ -253,6 +279,7 @@ class BrowserManager {
         index: serverInfo.index,
         port: serverInfo.port,
         wsPath: serverInfo.wsPath,
+        proxyServer: serverInfo.proxyString || null,
         createdAt: new Date(serverInfo.createdAt).toISOString(),
         lastAccessedAt: new Date(serverInfo.lastAccessedAt).toISOString(),
         age: Date.now() - serverInfo.createdAt,
