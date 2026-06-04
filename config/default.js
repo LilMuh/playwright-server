@@ -45,7 +45,8 @@ module.exports = {
       enabled: process.env.CHROME_ENABLED !== 'false',
       ttl: parseInt(process.env.WEBKIT_TTL) || 6 * 60 * 1000,
       launchOptions: {
-        headless: true,
+        headless: false,
+        executablePath: process.env.CHROME_EXECUTABLE_PATH,
         args: [
           '--disable-web-security',
           // 移除 VizDisplayCompositor 禁用，Mac Studio GPU 性能强大
